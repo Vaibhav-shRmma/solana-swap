@@ -14,6 +14,6 @@ A simple AMM swap program built on Solana using Anchor.
 - SPL Token
 
 ## How to run
-anchor build
-anchor test
+->anchor build
+->anchor test
 ```
