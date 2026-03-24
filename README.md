@@ -41,7 +41,7 @@ solana-swap/
 
 ---
 
-## ⚙️ How It Works
+## How It Works
 
 This project implements a basic AMM using the **constant product formula**:
 
@@ -111,6 +111,6 @@ solana config set --url devnet
 anchor deploy
 ```
 
-## 📜 License
+## License
 
 MIT License
