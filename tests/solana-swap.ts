@@ -147,7 +147,7 @@ describe ("solana-swap", () => {
   console.log(`added liquidity : ${deposited} Token A deposited`);
   });
 
-  // Test 3: Swap Token A → Token B
+  // Test 3
   it("Swaps Token A for Token B", async () => {
     const userBBefore = await getAccount(connection, userTokenB);
 
@@ -171,4 +171,72 @@ describe ("solana-swap", () => {
     assert.isAbove(received, 0);
     console.log(`Swapped 50 Token A → received ${received} Token B`);
   });
+
+  //TEST 4
+  it("Swaps Token B for Token A", async () => {
+    const userABefore = await getAccount(connection, userTokenA);
+    const userBBefore = await getAccount(connection, userTokenB);
+
+    await program.methods
+    .swapBToA( new anchor.BN(50_000_000))
+    .accounts({
+      user: wallet.publicKey,
+      userTokenA,
+      userTokenB,
+      poolTokenA,
+      poolTokenB,
+      mintA,
+      mintB,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .rpc();
+
+    const userAAfter = await getAccount(connection, userTokenA);
+    const userBAfter = await getAccount(connection, userTokenB);
+
+    const tokenAReceived = Number(userAAfter.amount) - Number(userABefore.amount);
+    const tokenBSpent = Number(userBBefore.amount) - Number(userBAfter.amount);
+
+    assert.isAbove(tokenAReceived, 0 );
+    assert.equal(tokenBSpent, 50_000_000);
+    console.log(`Swapped 50 Token B → received ${tokenAReceived} Token A`);
+  });
+
+  //TEST 5
+  it("Removes Liquidity from the pool", async () => {
+    const poolABefore = await getAccount(connection, poolTokenA);
+    const poolBBefore = await getAccount(connection, poolTokenB);
+    const userABefore = await getAccount(connection, userTokenA);
+    const userBBefore = await getAccount(connection, userTokenB);
+
+    await program.methods
+    .removeLiquidity(new anchor.BN(1), new anchor.BN(2))
+    .accounts({
+      authority: wallet.publicKey,
+      userTokenA,
+      userTokenB,
+      poolTokenA,
+      poolTokenB,
+      mintA,
+      mintB,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .rpc();
+
+    const poolAAfter = await getAccount(connection, poolTokenA);
+    const poolBAfter = await getAccount(connection, poolTokenB);
+    const userAAfter = await getAccount(connection, userTokenA);
+    const userBAfter = await getAccount(connection, userTokenB);
+
+    const tokenARemoved = Number(poolABefore.amount) - Number(poolAAfter.amount);
+    const tokenBRemoved = Number(poolBBefore.amount) - Number(poolBAfter.amount);
+    const tokenAReceived = Number(userAAfter.amount) - Number(userABefore.amount);
+    const tokenBReceived = Number(userBAfter.amount) - Number(userBBefore.amount);
+
+    assert.isAbove(tokenARemoved, 0);
+    assert.isAbove(tokenBRemoved, 0);
+    assert.equal(tokenAReceived, tokenARemoved);
+    assert.equal(tokenBReceived, tokenBRemoved);
+    console.log(`Removed 50% liquidity : ${tokenARemoved} Token A and ${tokenBRemoved} Token B received`);
+    })
 });
