@@ -116,6 +116,120 @@ pub mod solana_swap {
         msg!("Swapped {} of Token A for {} of Token B", amount_in, amount_out);
         Ok(())
     }
+
+    pub fn swap_b_to_a(
+        ctx: Context<Swap>,
+        amount_in: u64,
+    ) -> Result<()> {
+        let pool = &ctx.accounts.pool;
+        let reserve_a = ctx.accounts.pool_token_a.amount;
+        let reserve_b = ctx.accounts.pool_token_b.amount;
+
+        let fee = amount_in
+            .checked_mul(pool.fee_numerator).unwrap()
+            .checked_div(pool.fee_denominator).unwrap();
+        let amount_in_after_fee = amount_in.checked_sub(fee).unwrap();
+
+        let amount_out = reserve_a
+            .checked_mul(amount_in_after_fee).unwrap()
+            .checked_div(reserve_b.checked_add(amount_in_after_fee).unwrap())
+            .unwrap();
+        require!(amount_out > 0, SwapError::InsufficientOutputAmount);
+
+        transfer_checked(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                TransferChecked {
+                    from: ctx.accounts.user_token_b.to_account_info(),
+                    to: ctx.accounts.pool_token_b.to_account_info(),
+                    authority: ctx.accounts.user.to_account_info(),
+                    mint: ctx.accounts.mint_b.to_account_info(),
+                },
+            ),
+            amount_in,
+            ctx.accounts.mint_b.decimals,
+        )?;
+
+        let bump = pool.bump;
+        let seeds = &[b"pool".as_ref(), &[bump]];
+        let signer = &[&seeds[..]];
+
+        transfer_checked(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                TransferChecked {
+                    from: ctx.accounts.pool_token_a.to_account_info(),
+                    to: ctx.accounts.user_token_a.to_account_info(),
+                    authority: ctx.accounts.pool.to_account_info(),
+                    mint: ctx.accounts.mint_a.to_account_info(),
+                },
+                signer,
+            ),
+            amount_out,
+            ctx.accounts.mint_a.decimals,
+        )?;
+
+        msg!("Swapped {} of Token B for {} of Token A", amount_in, amount_out);
+        Ok(())
+    }
+
+    pub fn remove_liquidity(
+        ctx: Context<RemoveLiquidity>,
+        share_numerator: u64,
+        share_denominator: u64,
+    ) -> Result<()> {
+        require!(share_numerator > 0 && share_denominator > 0, SwapError::InvalidShare);
+        require!(share_numerator <= share_denominator, SwapError::InvalidShare);
+
+        let reserve_a = ctx.accounts.pool_token_a.amount;
+        let reserve_b = ctx.accounts.pool_token_b.amount;
+
+        let amount_a = reserve_a
+            .checked_mul(share_numerator).unwrap()
+            .checked_div(share_denominator).unwrap();
+        let amount_b = reserve_b
+            .checked_mul(share_numerator).unwrap()
+            .checked_div(share_denominator).unwrap();
+
+        require!(amount_a > 0 && amount_b > 0, SwapError::InsufficientOutputAmount);
+
+        let bump = ctx.accounts.pool.bump;
+        let seeds = &[b"pool".as_ref(), &[bump]];
+        let signer = &[&seeds[..]];
+
+        transfer_checked(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                TransferChecked {
+                    from: ctx.accounts.pool_token_a.to_account_info(),
+                    to: ctx.accounts.user_token_a.to_account_info(),
+                    authority: ctx.accounts.pool.to_account_info(),
+                    mint: ctx.accounts.mint_a.to_account_info(),
+                },
+                signer,
+            ),
+            amount_a,
+            ctx.accounts.mint_a.decimals,
+        )?;
+
+        transfer_checked(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                TransferChecked {
+                    from: ctx.accounts.pool_token_b.to_account_info(),
+                    to: ctx.accounts.user_token_b.to_account_info(),
+                    authority: ctx.accounts.pool.to_account_info(),
+                    mint: ctx.accounts.mint_b.to_account_info(),
+                },
+                signer,
+            ),
+            amount_b,
+            ctx.accounts.mint_b.decimals,
+        )?;
+
+        msg!("Removed liquidity: {} of Token A and {} of Token B", amount_a, amount_b);
+        Ok(())
+    }
 }
 
 #[account]
@@ -183,8 +297,29 @@ pub struct Swap<'info> {
     pub token_program: Interface<'info, TokenInterface>,
 }
 
+#[derive(Accounts)]
+pub struct RemoveLiquidity<'info> {
+    #[account(mut, seeds = [b"pool".as_ref()], bump = pool.bump)]
+    pub pool: Account<'info, Pool>,
+    #[account(mut, address = pool.authority)]
+    pub authority: Signer<'info>,
+    #[account(mut)]
+    pub user_token_a: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut)]
+    pub user_token_b: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut, address = pool.token_a_account)]
+    pub pool_token_a: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut, address = pool.token_b_account)]
+    pub pool_token_b: InterfaceAccount<'info, TokenAccount>,
+    pub mint_a: InterfaceAccount<'info, Mint>,
+    pub mint_b: InterfaceAccount<'info, Mint>,
+    pub token_program: Interface<'info, TokenInterface>,
+}
+
 #[error_code]
 pub enum SwapError {
     #[msg("Output amount is too low")]
     InsufficientOutputAmount,
+    #[msg("Share must be between 0 and 1 (numerator <= denominator)")]
+    InvalidShare,
 }
